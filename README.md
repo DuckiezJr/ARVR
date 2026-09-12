@@ -74,6 +74,17 @@ If you choose a repository name other than `ARVR`, change the `base` value in `v
 - **The camera does not open:** use the GitHub Pages HTTPS URL, not a local file or an HTTP address, and allow camera permission.
 - **My room disappeared:** room data is local to that browser and device. Use **Export room** to save a JSON backup.
 
-## Important limitation
+## Real XR Requirements
 
-This is currently a web prototype. Full ARCore plane detection, persistent spatial anchors, immersive WebXR, real MP4 playback, and PDF rendering still need to be added for a production AR/VR experience.
+The app now requests a real `immersive-ar` WebXR session with `hit-test`, optional depth sensing, and controller select events. It does not fabricate a room scan when XR is unavailable.
+
+For the real scan path, use a supported Android phone with an ARCore-compatible Chrome/WebXR build, or a mixed-reality headset/browser that exposes WebXR AR. iPhone Safari and ordinary desktop browsers cannot provide this room-scanning session. An Xbox controller must be paired to the device and exposed through the browser Gamepad API.
+
+The centered scan overlay is intentional: headset browsers can block or crop side panels, so scan state and the primary action stay in the central safe area.
+
+Still planned for a production release:
+
+- 3D persistent anchor objects rendered at hit-test poses
+- Full depth mesh and wall/door/object classification
+- Real MP4 playback and PDF reading surfaces inside XR
+- Cross-device room synchronization and a native ARCore fallback

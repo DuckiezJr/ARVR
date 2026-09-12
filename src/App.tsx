@@ -4,6 +4,7 @@ import {
   FileText, Gamepad2, Headset, Library, MapPin, Maximize2, Mic, Move3d, Pause, Play,
   Plus, Radio, ScanLine, Settings2, Sparkles, Trash2, Upload, Video, X,
 } from 'lucide-react'
+import { startRoomScan, supportsRoomScan } from './xr'
 
 type AnchorKind = 'scene' | 'media' | 'reading'
 type Anchor = { id: number; label: string; kind: AnchorKind; x: number; y: number; detail: string; asset?: string }
@@ -28,8 +29,11 @@ function App() {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [connected, setConnected] = useState(false)
   const [vrSupported, setVrSupported] = useState(false)
+  const [xrActive, setXrActive] = useState(false)
+  const [scanStatus, setScanStatus] = useState('Ready for a real room scan')
   const [toast, setToast] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
+  const xrCanvasRef = useRef<HTMLCanvasElement>(null)
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
 
   useEffect(() => localStorage.setItem('roomscape-anchors', JSON.stringify(anchors)), [anchors])
@@ -39,8 +43,7 @@ function App() {
     return () => window.removeEventListener('gamepadconnected', onGamepad)
   }, [])
   useEffect(() => {
-    const xr = (navigator as Navigator & { xr?: { isSessionSupported?: (mode: string) => Promise<boolean> } }).xr
-    xr?.isSessionSupported?.('immersive-vr').then(setVrSupported).catch(() => setVrSupported(false))
+    supportsRoomScan().then(setVrSupported)
   }, [])
   useEffect(() => {
     let frame = 0
@@ -86,9 +89,16 @@ function App() {
     } catch { setToast('Camera permission is needed for live room view') }
   }
 
-  const beginScan = () => {
+  const beginScan = async () => {
+    if (!xrCanvasRef.current) return
     setIsScanning(true)
-    window.setTimeout(() => { setIsScanning(false); setToast('Room mapped · 4 anchors ready') }, 1800)
+    try {
+      await startRoomScan(xrCanvasRef.current, setScanStatus, () => setToast('Real surface selected. Add content with the controller.'))
+      setXrActive(true)
+    } catch (error) {
+      setIsScanning(false)
+      setToast(error instanceof Error ? error.message : 'This device cannot start an AR room scan')
+    }
   }
 
   const addAnchor = () => {
@@ -106,15 +116,7 @@ function App() {
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'roomscape-living-room.json'; link.click(); URL.revokeObjectURL(link.href); setToast('Room file exported')
   }
 
-  const enterVr = async () => {
-    const xr = (navigator as Navigator & { xr?: { requestSession?: (mode: string, options?: { requiredFeatures?: string[] }) => Promise<{ addEventListener: (event: string, handler: () => void) => void }> } }).xr
-    if (!xr?.requestSession) { setToast('WebXR is not available in this browser'); return }
-    try {
-      const session = await xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] })
-      session.addEventListener('end', () => setToast('VR session ended'))
-      setToast('VR session started. Your headset is ready.')
-    } catch { setToast('VR needs a supported headset browser and HTTPS') }
-  }
+  const enterVr = () => beginScan()
 
   return (
     <main className="app-shell">
@@ -125,16 +127,17 @@ function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / LIVING ROOM</p><h1>Make space yours.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={beginScan}><ScanLine size={16} /> Scan room</button></div></header>
+        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / LIVE XR</p><h1>Scan your actual space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={beginScan}><ScanLine size={16} /> {vrSupported ? 'Start room scan' : 'Check device support'}</button></div></header>
         <div className="view-toolbar"><div className="mode-switch"><button className="mode active"><Move3d size={15} /> Room map</button><button className="mode" onClick={toggleCamera}><Camera size={15} /> Live camera</button></div><div className="view-tools"><button className="icon-button" title="Add anchor" onClick={addAnchor}><Plus size={18} /></button><button className="icon-button" title="Fullscreen"><Maximize2 size={17} /></button><span className={`status-pill ${connected ? 'connected' : ''}`}><span className="status-dot" /> {connected ? 'Controller ready' : 'Local mode'}</span></div></div>
         <section className="map-layout">
-          <div className={`room-map ${isScanning ? 'scanning' : ''}`}>
+          <div className={`room-map ${isScanning ? 'scanning' : ''} ${xrActive ? 'xr-ready' : ''}`}>
+            <canvas ref={xrCanvasRef} className="xr-canvas" />
             <video ref={videoRef} className={`camera-feed ${cameraOn ? 'visible' : ''}`} muted playsInline />
             <div className="map-grid" /><div className="room-label room-label-a">NORTH WALL <span>4.8 m</span></div><div className="room-label room-label-b">WINDOW <span>1.6 m</span></div><div className="room-label room-label-c">SOUTH WALL <span>4.8 m</span></div>
             <div className="room-shape"><div className="door-shape" /><div className="window-shape" /><div className="rug-shape" /><div className="table-shape"><span /></div><div className="chair-shape chair-one" /><div className="chair-shape chair-two" /></div>
             {anchors.map((anchor) => <button key={anchor.id} className={`anchor anchor-${anchor.kind} ${selected?.id === anchor.id ? 'selected' : ''}`} style={{ left: `${anchor.x}%`, top: `${anchor.y}%` }} onClick={() => setSelectedId(anchor.id)}><span className="anchor-pulse" /><span className="anchor-pin">{anchorIcon(anchor.kind)}</span><span className="anchor-label">{anchor.label}</span></button>)}
-            {isScanning && <div className="scan-line"><ScanLine size={18} /> Analyzing surfaces...</div>}
-            <div className="map-footer"><span><Radio size={14} /> Spatial map synced</span><span>Updated just now</span></div>
+            {isScanning && <div className="scan-line"><ScanLine size={18} /> {scanStatus}</div>}
+            <div className="map-footer"><span><Radio size={14} /> {xrActive ? 'Live XR session' : 'Desktop preview only'}</span><span>{xrActive ? 'Depth / hit-test active' : 'Start scan to use real surroundings'}</span></div>
           </div>
           <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED ANCHOR</p><h2>{selected?.label ?? 'No anchor selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind === 'media' ? 'MEDIA SURFACE' : selected.kind === 'reading' ? 'READING SPACE' : 'ROOM OBJECT'}</span></div><div className="detail-block"><div className="detail-row"><span>Type</span><strong>{selected.kind === 'media' ? 'Movie player' : selected.kind === 'reading' ? 'PDF reader' : 'Interactive object'}</strong></div><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Available offline · 248 MB</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="solid-button wide" onClick={enterVr}><Headset size={16} /> {vrSupported ? 'Open in VR' : 'Check VR support'}</button><button className="outline-button wide" onClick={() => setToast('A: select · B: place · Y: recenter')}><Gamepad2 size={16} /> Controller mapping</button></div></>}</aside>
         </section>
