@@ -27,6 +27,7 @@ function App() {
   const [cameraOn, setCameraOn] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [connected, setConnected] = useState(false)
+  const [vrSupported, setVrSupported] = useState(false)
   const [toast, setToast] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
@@ -37,6 +38,34 @@ function App() {
     window.addEventListener('gamepadconnected', onGamepad)
     return () => window.removeEventListener('gamepadconnected', onGamepad)
   }, [])
+  useEffect(() => {
+    const xr = (navigator as Navigator & { xr?: { isSessionSupported?: (mode: string) => Promise<boolean> } }).xr
+    xr?.isSessionSupported?.('immersive-vr').then(setVrSupported).catch(() => setVrSupported(false))
+  }, [])
+  useEffect(() => {
+    let frame = 0
+    let lastAction = 0
+    const pollController = (time: number) => {
+      const gamepad = navigator.getGamepads?.().find((item): item is Gamepad => Boolean(item?.connected))
+      if (gamepad) {
+        setConnected(true)
+        const [horizontal, vertical] = gamepad.axes
+        if (time - lastAction > 220 && (Math.abs(horizontal) > .6 || Math.abs(vertical) > .6) && anchors.length) {
+          const direction = Math.abs(horizontal) > Math.abs(vertical) ? (horizontal > 0 ? 1 : -1) : (vertical > 0 ? 1 : -1)
+          const index = anchors.findIndex((anchor) => anchor.id === selectedId)
+          const next = anchors[(index + direction + anchors.length) % anchors.length]
+          if (next) setSelectedId(next.id)
+          lastAction = time
+        }
+        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { setToast(`${selected?.label ?? 'Anchor'} selected with A`); lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { addAnchor(); lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { setToast('View recentered'); lastAction = time }
+      }
+      frame = requestAnimationFrame(pollController)
+    }
+    frame = requestAnimationFrame(pollController)
+    return () => cancelAnimationFrame(frame)
+  }, [anchors, selected, selectedId])
   useEffect(() => {
     if (!toast) return
     const timeout = window.setTimeout(() => setToast(''), 2600)
@@ -77,6 +106,16 @@ function App() {
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'roomscape-living-room.json'; link.click(); URL.revokeObjectURL(link.href); setToast('Room file exported')
   }
 
+  const enterVr = async () => {
+    const xr = (navigator as Navigator & { xr?: { requestSession?: (mode: string, options?: { requiredFeatures?: string[] }) => Promise<{ addEventListener: (event: string, handler: () => void) => void }> } }).xr
+    if (!xr?.requestSession) { setToast('WebXR is not available in this browser'); return }
+    try {
+      const session = await xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] })
+      session.addEventListener('end', () => setToast('VR session ended'))
+      setToast('VR session started. Your headset is ready.')
+    } catch { setToast('VR needs a supported headset browser and HTTPS') }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -97,7 +136,7 @@ function App() {
             {isScanning && <div className="scan-line"><ScanLine size={18} /> Analyzing surfaces...</div>}
             <div className="map-footer"><span><Radio size={14} /> Spatial map synced</span><span>Updated just now</span></div>
           </div>
-          <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED ANCHOR</p><h2>{selected?.label ?? 'No anchor selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind === 'media' ? 'MEDIA SURFACE' : selected.kind === 'reading' ? 'READING SPACE' : 'ROOM OBJECT'}</span></div><div className="detail-block"><div className="detail-row"><span>Type</span><strong>{selected.kind === 'media' ? 'Movie player' : selected.kind === 'reading' ? 'PDF reader' : 'Interactive object'}</strong></div><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Available offline · 248 MB</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="solid-button wide" onClick={() => setToast(`${selected.label} opened in immersive mode`)}><Headset size={16} /> Open in VR</button><button className="outline-button wide" onClick={() => setToast('Interaction settings opened')}><Settings2 size={16} /> Configure interaction</button></div></>}</aside>
+          <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED ANCHOR</p><h2>{selected?.label ?? 'No anchor selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind === 'media' ? 'MEDIA SURFACE' : selected.kind === 'reading' ? 'READING SPACE' : 'ROOM OBJECT'}</span></div><div className="detail-block"><div className="detail-row"><span>Type</span><strong>{selected.kind === 'media' ? 'Movie player' : selected.kind === 'reading' ? 'PDF reader' : 'Interactive object'}</strong></div><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Available offline · 248 MB</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="solid-button wide" onClick={enterVr}><Headset size={16} /> {vrSupported ? 'Open in VR' : 'Check VR support'}</button><button className="outline-button wide" onClick={() => setToast('A: select · B: place · Y: recenter')}><Gamepad2 size={16} /> Controller mapping</button></div></>}</aside>
         </section>
         <footer className="workspace-footer"><div className="tip"><Gamepad2 size={17} /><span><strong>Controller ready.</strong> Move with the left stick, select with A, and recenter with Y.</span></div><button className="mic-button"><Mic size={17} /></button></footer>
       </section>
