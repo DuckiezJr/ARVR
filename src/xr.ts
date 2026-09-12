@@ -39,6 +39,8 @@ export const startImmersiveSession = async (canvas: HTMLCanvasElement, mode: 'im
 
   const gl = canvas.getContext('webgl', { alpha: true, antialias: true })
   if (!gl) throw new Error('WebGL is unavailable on this device.')
+  const xrGl = gl as WebGLRenderingContext & { makeXRCompatible?: () => Promise<void> }
+  if (xrGl.makeXRCompatible) await xrGl.makeXRCompatible()
 
   const session = await xr.requestSession(mode, {
     requiredFeatures: ['local-floor'],
