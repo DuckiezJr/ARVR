@@ -51,7 +51,7 @@ function App() {
     return () => window.removeEventListener('gamepadconnected', onGamepad)
   }, [])
   useEffect(() => {
-    supportsRoomScan().then(setVrSupported)
+    supportsRoomScan().then((supported) => { setVrSupported(supported); if (!supported) toggleCamera() })
   }, [])
   useEffect(() => {
     enterImmersive('immersive-ar')
@@ -174,7 +174,7 @@ function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / PASSTHROUGH XR</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={beginScan}><ScanLine size={16} /> Restart spatial view</button></div></header>
+        <header className="topbar"><div><p className="eyebrow">ROOMSCAPE / SPATIAL WORKSPACE</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button></div></header>
         <div className="view-toolbar"><div className="mode-switch"><button className="mode active"><Move3d size={15} /> Room map</button><button className="mode" onClick={toggleCamera}><Camera size={15} /> Live camera</button></div><div className="view-tools"><button className="icon-button" title="Add anchor" onClick={addAnchor}><Plus size={18} /></button><button className="icon-button" title="Fullscreen"><Maximize2 size={17} /></button><span className={`status-pill ${connected ? 'connected' : ''}`}><span className="status-dot" /> {connected ? 'Controller ready' : 'Local mode'}</span></div></div>
         <section className="map-layout">
           <div className={`room-map ${isScanning ? 'scanning' : ''} ${xrActive ? 'xr-ready' : ''}`}>
