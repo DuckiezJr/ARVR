@@ -45,6 +45,14 @@ export const startImmersiveSession = async (
 
   const scene = new THREE.Scene()
   scene.add(new THREE.HemisphereLight(0xffffff, 0x334433, 1.4))
+  scene.add(new THREE.DirectionalLight(0xc9f26b, 0.8)).position.set(2, 4, 2)
+  if (mode === 'immersive-vr') {
+    const floor = new THREE.GridHelper(12, 24, 0x65d5b1, 0x243b35)
+    floor.position.y = 0
+    floor.material.transparent = true
+    floor.material.opacity = 0.28
+    scene.add(floor)
+  }
   const camera = new THREE.PerspectiveCamera()
   const reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.035, 0.045, 32),
@@ -55,6 +63,13 @@ export const startImmersiveSession = async (
   reticle.visible = false
   scene.add(reticle)
 
+  const preview = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.32, 0.12),
+    new THREE.MeshBasicMaterial({ color: 0xc9f26b, transparent: true, opacity: 0.2, wireframe: true }),
+  )
+  preview.visible = false
+  scene.add(preview)
+
   const makeVolume = (volume: PlacedVolume) => {
     const color = volume.kind === 'media' ? 0x65d5b1 : volume.kind === 'reading' ? 0xecc76d : 0xc9f26b
     const mesh = new THREE.Mesh(
@@ -63,7 +78,8 @@ export const startImmersiveSession = async (
     )
     mesh.position.set(...volume.position)
     mesh.userData.volume = volume
-    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 })))
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color: 0xc9f26b, transparent: true, opacity: 0.9 })))
+    mesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.2, 0.02), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.2 })))
     scene.add(mesh)
   }
   initialVolumes.forEach(makeVolume)
@@ -102,9 +118,9 @@ export const startImmersiveSession = async (
       const hit = frame.getHitTestResults(hitSource)[0]
       const referenceSpace = renderer.xr.getReferenceSpace()
       const pose = referenceSpace ? hit?.getPose(referenceSpace) : undefined
-      if (pose) { reticlePose = new THREE.Matrix4().fromArray(pose.transform.matrix); reticle.matrix.copy(reticlePose); reticle.visible = true; onStatus('Surface found · press controller select to place') }
-      else { reticlePose = null; reticle.visible = false; onStatus('Look around slowly to find a surface') }
-    } else onStatus('VR workspace active · point and press select')
+      if (pose) { reticlePose = new THREE.Matrix4().fromArray(pose.transform.matrix); reticle.matrix.copy(reticlePose); preview.matrix.copy(reticlePose); reticle.visible = true; preview.visible = true; onStatus('Surface found') }
+      else { reticlePose = null; reticle.visible = false; preview.visible = false; onStatus('Searching surfaces') }
+    } else { preview.visible = false; onStatus('VR workspace active') }
     renderer.render(scene, camera)
   })
   onStatus(mode === 'immersive-ar' ? 'Scanning real surfaces...' : 'Entering VR workspace...')

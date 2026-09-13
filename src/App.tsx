@@ -40,10 +40,9 @@ function App() {
     return stored ? JSON.parse(stored) : []
   })
   const videoRef = useRef<HTMLVideoElement>(null)
+  const vrVideoRef = useRef<HTMLVideoElement>(null)
   const xrCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const gazeTargetRef = useRef<Element | null>(null)
-  const gazeTimerRef = useRef<number | null>(null)
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
 
   useEffect(() => localStorage.setItem('roomscape-anchors', JSON.stringify(anchors)), [anchors])
@@ -79,34 +78,17 @@ function App() {
           if (next) setSelectedId(next.id)
           lastAction = time
         }
-        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { setToast(`${selected?.label ?? 'Object'} opened 7 m ahead`); lastAction = time }
+        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { addAnchor(); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[2]?.pressed) { setLibraryOpen(true); lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { setToast('View recentered'); lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[4]?.pressed) { setDrawMode((active) => !active); setToast(drawMode ? 'Draw mode off' : 'Draw mode on · look at a surface and press B'); lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[4]?.pressed) { setDrawMode((active) => !active); lastAction = time }
       }
       frame = requestAnimationFrame(pollController)
     }
     frame = requestAnimationFrame(pollController)
     return () => cancelAnimationFrame(frame)
   }, [anchors, selected, selectedId])
-  useEffect(() => {
-    if (!xrActive && !cameraOn) return
-    let frame = 0
-    let startedAt = 0
-    const updateGaze = (time: number) => {
-      const target = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('button, input, select') ?? null
-      if (target !== gazeTargetRef.current) { gazeTargetRef.current = target; startedAt = target ? time : 0 }
-      const dwell = target && startedAt ? Math.min(1, (time - startedAt) / 1000) : 0
-      document.documentElement.style.setProperty('--gaze-progress', `${dwell * 360}deg`)
-      if (dwell >= 1 && gazeTimerRef.current === null) {
-        gazeTimerRef.current = window.setTimeout(() => { (target as HTMLElement)?.click(); gazeTimerRef.current = null; startedAt = time + 800 }, 0)
-      }
-      frame = requestAnimationFrame(updateGaze)
-    }
-    frame = requestAnimationFrame(updateGaze)
-    return () => { cancelAnimationFrame(frame); if (gazeTimerRef.current) window.clearTimeout(gazeTimerRef.current); document.documentElement.style.setProperty('--gaze-progress', '0deg') }
-  }, [xrActive, cameraOn])
   useEffect(() => {
     if (!toast) return
     const timeout = window.setTimeout(() => setToast(''), 2600)
@@ -116,12 +98,14 @@ function App() {
   const toggleCamera = async () => {
     if (cameraOn) {
       videoRef.current?.srcObject && (videoRef.current.srcObject as MediaStream).getTracks().forEach((track) => track.stop())
+      if (vrVideoRef.current) vrVideoRef.current.srcObject = null
       setCameraOn(false)
       return
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
       if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play() }
+      if (vrVideoRef.current) { vrVideoRef.current.srcObject = stream; await vrVideoRef.current.play() }
       setCameraOn(true)
       setToast('Camera layer active')
     } catch { setToast('Camera permission is needed for live room view') }
@@ -199,7 +183,8 @@ function App() {
         <section className="map-layout">
           <div className={`room-map ${isScanning ? 'scanning' : ''} ${xrActive ? 'xr-ready' : ''}`}>
             <canvas ref={xrCanvasRef} className="xr-canvas" />
-            <video ref={videoRef} className={`camera-feed ${cameraOn ? 'visible' : ''}`} muted playsInline />
+            <video ref={videoRef} className={`camera-feed camera-feed-left ${cameraOn ? 'visible' : ''}`} muted playsInline />
+            <video ref={vrVideoRef} className={`camera-feed camera-feed-right ${cameraOn ? 'visible' : ''}`} muted playsInline />
             <div className="map-grid" /><div className="room-label room-label-a">NORTH WALL <span>4.8 m</span></div><div className="room-label room-label-b">WINDOW <span>1.6 m</span></div><div className="room-label room-label-c">SOUTH WALL <span>4.8 m</span></div>
             <div className="room-shape"><div className="door-shape" /><div className="window-shape" /><div className="rug-shape" /><div className="table-shape"><span /></div><div className="chair-shape chair-one" /><div className="chair-shape chair-two" /></div>
             {anchors.map((anchor) => <button key={anchor.id} className={`anchor anchor-${anchor.kind} ${selected?.id === anchor.id ? 'selected' : ''}`} style={{ left: `${anchor.x}%`, top: `${anchor.y}%` }} onClick={() => setSelectedId(anchor.id)}><span className="anchor-pulse" /><span className="anchor-pin">{anchorIcon(anchor.kind)}</span><span className="anchor-label">{anchor.label}</span></button>)}
@@ -211,7 +196,7 @@ function App() {
         <footer className="workspace-footer"><div className="tip"><Gamepad2 size={17} /><span><strong>Controller ready.</strong> Move with the left stick, select with A, and recenter with Y.</span></div><button className="mic-button"><Mic size={17} /></button></footer>
       </section>
       {!cameraOn && <button className="permission-button" onClick={() => { toggleCamera(); requestCardboardMotion() }}>Enable camera workspace</button>}
-      {(xrActive || cameraOn) && <><div className="gaze-reticle" aria-hidden="true"><span /></div><div className="spatial-dock"><div className="dock-status"><span className="status-dot" /> {xrActive ? scanStatus : 'Cardboard camera workspace'}</div><div className="dock-hint"><Gamepad2 size={14} /> A open · B place · X library · Y recenter · LB draw</div><div className="dock-meta">{drawMode ? 'DRAW MODE · outline an object with your gaze' : orientationReady ? 'Head tracking active' : 'Tap the center control to enable motion'}</div></div><div className="immersive-hud"><div className="immersive-hud-top"><span className="xr-badge"><span className="status-dot" /> {xrActive ? 'PASSTHROUGH XR' : 'CARDBOARD MODE'}</span><span>{scanStatus}</span></div><div className="immersive-hud-center"><div className={`reticle ${drawMode ? 'drawing' : ''}`} /><p>{xrActive ? 'Point at a surface, then use the controller' : 'Look at an object · A select · B place'}</p><button className="motion-button" onClick={requestCardboardMotion}>{orientationReady ? 'Motion active' : 'Enable head tracking'}</button></div></div></>}
+      {(xrActive || cameraOn) && <><div className="gaze-reticle gaze-reticle-left" aria-hidden="true"><span /></div><div className="gaze-reticle gaze-reticle-right" aria-hidden="true"><span /></div></>}
       {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><input ref={fileInputRef} className="file-input" type="file" accept="video/*,audio/*,application/pdf,image/*" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Import and link file</button></section></div>}
       {toast && <div className="toast"><Sparkles size={16} /> {toast}</div>}
     </main>
