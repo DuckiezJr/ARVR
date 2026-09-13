@@ -83,7 +83,7 @@ export const startImmersiveSession = async (
 
   const placeVolume = () => {
     if (mode === 'immersive-ar' && !reticlePose) return
-    const matrix = reticlePose ?? new THREE.Matrix4().makeTranslation(0, 1.3, -2)
+    const matrix = reticlePose ?? new THREE.Matrix4().makeTranslation(0, 1.3, -7)
     const position = new THREE.Vector3().setFromMatrixPosition(matrix)
     const volume: PlacedVolume = { id: Date.now(), label: 'New object', kind: 'object', position: [position.x, position.y, position.z] }
     makeVolume(volume)

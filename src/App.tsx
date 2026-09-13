@@ -39,6 +39,8 @@ function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const xrCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const gazeTargetRef = useRef<Element | null>(null)
+  const gazeTimerRef = useRef<number | null>(null)
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
 
   useEffect(() => localStorage.setItem('roomscape-anchors', JSON.stringify(anchors)), [anchors])
@@ -69,8 +71,9 @@ function App() {
           if (next) setSelectedId(next.id)
           lastAction = time
         }
-        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { setToast(`${selected?.label ?? 'Anchor'} selected with A`); lastAction = time }
+        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { setToast(`${selected?.label ?? 'Object'} opened 7 m ahead`); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { addAnchor(); lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[2]?.pressed) { setLibraryOpen(true); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { setToast('View recentered'); lastAction = time }
       }
       frame = requestAnimationFrame(pollController)
@@ -78,6 +81,23 @@ function App() {
     frame = requestAnimationFrame(pollController)
     return () => cancelAnimationFrame(frame)
   }, [anchors, selected, selectedId])
+  useEffect(() => {
+    if (!xrActive && !cameraOn) return
+    let frame = 0
+    let startedAt = 0
+    const updateGaze = (time: number) => {
+      const target = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('button, input, select') ?? null
+      if (target !== gazeTargetRef.current) { gazeTargetRef.current = target; startedAt = target ? time : 0 }
+      const dwell = target && startedAt ? Math.min(1, (time - startedAt) / 1000) : 0
+      document.documentElement.style.setProperty('--gaze-progress', `${dwell * 360}deg`)
+      if (dwell >= 1 && gazeTimerRef.current === null) {
+        gazeTimerRef.current = window.setTimeout(() => { (target as HTMLElement)?.click(); gazeTimerRef.current = null; startedAt = time + 800 }, 0)
+      }
+      frame = requestAnimationFrame(updateGaze)
+    }
+    frame = requestAnimationFrame(updateGaze)
+    return () => { cancelAnimationFrame(frame); if (gazeTimerRef.current) window.clearTimeout(gazeTimerRef.current); document.documentElement.style.setProperty('--gaze-progress', '0deg') }
+  }, [xrActive, cameraOn])
   useEffect(() => {
     if (!toast) return
     const timeout = window.setTimeout(() => setToast(''), 2600)
@@ -170,7 +190,7 @@ function App() {
         </section>
         <footer className="workspace-footer"><div className="tip"><Gamepad2 size={17} /><span><strong>Controller ready.</strong> Move with the left stick, select with A, and recenter with Y.</span></div><button className="mic-button"><Mic size={17} /></button></footer>
       </section>
-      {xrActive && <div className="immersive-hud"><div className="immersive-hud-top"><span className="xr-badge"><span className="status-dot" /> VR WORKSPACE</span><span>{scanStatus}</span></div><div className="immersive-hud-center"><div className="reticle" /><p>Point with the headset or controller</p><div className="immersive-actions"><button className="solid-button" onClick={() => setLibraryOpen(true)}><Library size={16} /> Open library</button><button className="outline-button" onClick={addAnchor}><Plus size={16} /> Place anchor</button></div></div><div className="immersive-hud-bottom"><Gamepad2 size={15} /> Left stick move · A select · B place · Y recenter</div></div>}
+      {(xrActive || cameraOn) && <><div className="gaze-reticle" aria-hidden="true"><span /></div><div className="spatial-dock"><div className="dock-status"><span className="status-dot" /> {xrActive ? scanStatus : 'Live camera workspace'}</div><div className="dock-hint"><Gamepad2 size={14} /> A open · B place · X library · Y recenter</div></div><div className="immersive-hud"><div className="immersive-hud-top"><span className="xr-badge"><span className="status-dot" /> {xrActive ? 'PASSTHROUGH XR' : 'CAMERA MODE'}</span><span>{scanStatus}</span></div><div className="immersive-hud-center"><div className="reticle" /><p>{xrActive ? 'Point at a surface, then use the controller' : 'Move your phone to look around'}</p></div></div></>}
       {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><input ref={fileInputRef} className="file-input" type="file" accept="video/*,audio/*,application/pdf,image/*" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Import and link file</button></section></div>}
       {toast && <div className="toast"><Sparkles size={16} /> {toast}</div>}
     </main>
