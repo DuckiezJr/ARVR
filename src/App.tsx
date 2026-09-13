@@ -4,7 +4,7 @@ import {
   FileText, Gamepad2, Headset, Library, MapPin, Maximize2, Mic, Move3d, Pause, Play,
   Plus, Radio, ScanLine, Settings2, Sparkles, Trash2, Upload, Video, X,
 } from 'lucide-react'
-import { startImmersiveSession, supportsRoomScan } from './xr'
+import { startImmersiveSession, supportsRoomScan, type PlacedVolume } from './xr'
 
 type AnchorKind = 'scene' | 'media' | 'reading'
 type Anchor = { id: number; label: string; kind: AnchorKind; x: number; y: number; detail: string; asset?: string }
@@ -32,11 +32,16 @@ function App() {
   const [xrActive, setXrActive] = useState(false)
   const [scanStatus, setScanStatus] = useState('Ready for a real room scan')
   const [toast, setToast] = useState('')
+  const [volumes, setVolumes] = useState<PlacedVolume[]>(() => {
+    const stored = localStorage.getItem('roomscape-volumes')
+    return stored ? JSON.parse(stored) : []
+  })
   const videoRef = useRef<HTMLVideoElement>(null)
   const xrCanvasRef = useRef<HTMLCanvasElement>(null)
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
 
   useEffect(() => localStorage.setItem('roomscape-anchors', JSON.stringify(anchors)), [anchors])
+  useEffect(() => localStorage.setItem('roomscape-volumes', JSON.stringify(volumes)), [volumes])
   useEffect(() => {
     const onGamepad = () => { setConnected(true); setToast('Xbox controller connected') }
     window.addEventListener('gamepadconnected', onGamepad)
@@ -93,7 +98,10 @@ function App() {
     if (!xrCanvasRef.current) return
     setIsScanning(true)
     try {
-      await startImmersiveSession(xrCanvasRef.current, mode, setScanStatus, () => setToast('Selected with controller. Open the centered library to attach content.'))
+      await startImmersiveSession(xrCanvasRef.current, mode, setScanStatus, (volume) => {
+        if (volume) setVolumes((current) => [...current, volume])
+        setToast('3D volume placed. Open the centered library to attach content.')
+      }, volumes)
       setXrActive(true)
     } catch (error) {
       setIsScanning(false)
@@ -129,7 +137,7 @@ function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / XR WORKSPACE</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={() => enterImmersive('immersive-vr')}><Headset size={16} /> Enter VR</button></div></header>
+        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / PASSTHROUGH XR</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={beginScan}><Headset size={16} /> Enter passthrough</button></div></header>
         <div className="view-toolbar"><div className="mode-switch"><button className="mode active"><Move3d size={15} /> Room map</button><button className="mode" onClick={toggleCamera}><Camera size={15} /> Live camera</button></div><div className="view-tools"><button className="icon-button" title="Add anchor" onClick={addAnchor}><Plus size={18} /></button><button className="icon-button" title="Fullscreen"><Maximize2 size={17} /></button><span className={`status-pill ${connected ? 'connected' : ''}`}><span className="status-dot" /> {connected ? 'Controller ready' : 'Local mode'}</span></div></div>
         <section className="map-layout">
           <div className={`room-map ${isScanning ? 'scanning' : ''} ${xrActive ? 'xr-ready' : ''}`}>
@@ -141,7 +149,7 @@ function App() {
             {isScanning && <div className="scan-line"><ScanLine size={18} /> {scanStatus}</div>}
             <div className="map-footer"><span><Radio size={14} /> {xrActive ? 'Live XR session' : 'Desktop preview only'}</span><span>{xrActive ? 'Depth / hit-test active' : 'Start scan to use real surroundings'}</span></div>
           </div>
-          <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED ANCHOR</p><h2>{selected?.label ?? 'No anchor selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind === 'media' ? 'MEDIA SURFACE' : selected.kind === 'reading' ? 'READING SPACE' : 'ROOM OBJECT'}</span></div><div className="detail-block"><div className="detail-row"><span>Type</span><strong>{selected.kind === 'media' ? 'Movie player' : selected.kind === 'reading' ? 'PDF reader' : 'Interactive object'}</strong></div><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Available offline · 248 MB</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="solid-button wide" onClick={() => enterImmersive('immersive-vr')}><Headset size={16} /> {vrSupported ? 'Enter VR' : 'Check VR support'}</button><button className="outline-button wide" onClick={() => setToast('A: select · B: place · Y: recenter')}><Gamepad2 size={16} /> Controller mapping</button></div></>}</aside>
+          <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED ANCHOR</p><h2>{selected?.label ?? 'No anchor selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind === 'media' ? 'MEDIA SURFACE' : selected.kind === 'reading' ? 'READING SPACE' : 'ROOM OBJECT'}</span></div><div className="detail-block"><div className="detail-row"><span>Type</span><strong>{selected.kind === 'media' ? 'Movie player' : selected.kind === 'reading' ? 'PDF reader' : 'Interactive object'}</strong></div><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Available offline · 248 MB</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="solid-button wide" onClick={beginScan}><Headset size={16} /> {vrSupported ? 'Enter passthrough' : 'Check XR support'}</button><button className="outline-button wide" onClick={() => setToast('A: select · B: place · Y: recenter')}><Gamepad2 size={16} /> Controller mapping</button></div></>}</aside>
         </section>
         <footer className="workspace-footer"><div className="tip"><Gamepad2 size={17} /><span><strong>Controller ready.</strong> Move with the left stick, select with A, and recenter with Y.</span></div><button className="mic-button"><Mic size={17} /></button></footer>
       </section>
