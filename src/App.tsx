@@ -39,6 +39,7 @@ function App() {
   const [toast, setToast] = useState('')
   const [drawMode, setDrawMode] = useState(false)
   const [orientationReady, setOrientationReady] = useState(false)
+  const xrRetryRef = useRef(false)
   const [namingId, setNamingId] = useState<number | null>(null)
   const [movingId, setMovingId] = useState<number | null>(null)
   const [nameIndex, setNameIndex] = useState(0)
@@ -50,6 +51,7 @@ function App() {
   const vrVideoRef = useRef<HTMLVideoElement>(null)
   const xrCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const previousButtonsRef = useRef<boolean[]>([])
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
 
   useEffect(() => localStorage.setItem('roomscape-anchors', JSON.stringify(anchors)), [anchors])
@@ -59,7 +61,26 @@ function App() {
     window.addEventListener('gamepadconnected', onGamepad)
     return () => window.removeEventListener('gamepadconnected', onGamepad)
   }, [])
-  useEffect(() => { toggleCamera(); lockLandscape() }, [])
+  useEffect(() => {
+    const startSpatialRuntime = async () => {
+      lockLandscape()
+      const supported = await supportsImmersiveAr()
+      setArSupported(supported)
+      if (supported) {
+        try { await enterImmersive('immersive-ar') } catch { toggleCamera() }
+      } else toggleCamera()
+    }
+    startSpatialRuntime()
+  }, [])
+  useEffect(() => {
+    const retryAfterGesture = () => {
+      if (!arSupported || xrActive || xrRetryRef.current) return
+      xrRetryRef.current = true
+      enterImmersive('immersive-ar')
+    }
+    window.addEventListener('pointerdown', retryAfterGesture, { once: true, passive: true })
+    return () => window.removeEventListener('pointerdown', retryAfterGesture)
+  }, [arSupported, xrActive])
   useEffect(() => {
     const trackOrientation = () => setOrientationReady(true)
     window.addEventListener('deviceorientation', trackOrientation, true)
@@ -78,6 +99,7 @@ function App() {
       if (gamepad) {
         setConnected(true)
         const [horizontal, vertical] = gamepad.axes
+        const pressed = (index: number) => Boolean(gamepad.buttons[index]?.pressed && !previousButtonsRef.current[index])
         if (namingId !== null && time - lastAction > 220 && Math.abs(vertical) > .6) {
           setNameIndex((current) => (current + (vertical > 0 ? 1 : -1) + nameOptions.length) % nameOptions.length)
           lastAction = time
@@ -85,18 +107,20 @@ function App() {
         if (movingId !== null && (Math.abs(horizontal) > .18 || Math.abs(vertical) > .18)) {
           setAnchors((current) => current.map((anchor) => anchor.id === movingId ? { ...anchor, x: Math.max(8, Math.min(92, anchor.x + horizontal * 1.2)), y: Math.max(12, Math.min(82, anchor.y + vertical * 1.2)) } : anchor))
         }
-        if (time - lastAction > 220 && (Math.abs(horizontal) > .6 || Math.abs(vertical) > .6) && anchors.length) {
+        if (namingId === null && movingId === null && time - lastAction > 220 && (Math.abs(horizontal) > .6 || Math.abs(vertical) > .6) && anchors.length) {
           const direction = Math.abs(horizontal) > Math.abs(vertical) ? (horizontal > 0 ? 1 : -1) : (vertical > 0 ? 1 : -1)
           const index = anchors.findIndex((anchor) => anchor.id === selectedId)
           const next = anchors[(index + direction + anchors.length) % anchors.length]
           if (next) setSelectedId(next.id)
           lastAction = time
         }
-        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { if (namingId !== null) chooseName(nameOptions[nameIndex].label, nameOptions[nameIndex].kind); lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { if (movingId !== null) setMovingId(null); else if (namingId !== null) setNamingId(null); else addAnchor(); lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[2]?.pressed) { setLibraryOpen(true); lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[4]?.pressed) { setDrawMode((active) => !active); lastAction = time }
+        if (pressed(0)) { if (namingId !== null) chooseName(nameOptions[nameIndex].label, nameOptions[nameIndex].kind) }
+        if (pressed(1)) { if (movingId !== null) setMovingId(null); else if (namingId !== null) setNamingId(null); else addAnchor() }
+        if (pressed(2)) setLibraryOpen(true)
+        if (pressed(3)) setMovingId(null)
+        if (pressed(4)) setDrawMode((active) => !active)
+        if (pressed(5) && namingId !== null) openMove(namingId)
+        previousButtonsRef.current = gamepad.buttons.map((button) => button.pressed)
       }
       frame = requestAnimationFrame(pollController)
     }
@@ -227,7 +251,7 @@ function App() {
       </section>
       {!cameraOn && <button className="permission-button" onClick={() => { toggleCamera(); requestCardboardMotion() }}>Enable camera workspace</button>}
       {(xrActive || cameraOn) && <><div className="gaze-reticle gaze-reticle-left" aria-hidden="true"><span /></div><div className="gaze-reticle gaze-reticle-right" aria-hidden="true"><span /></div></>}
-      {namingId !== null && <div className="spatial-name-menu"><div className="name-panel name-panel-left"><button className="menu-move" onClick={() => openMove(namingId)}>Move</button><span className="menu-kicker">NEW SPATIAL OBJECT</span><strong>Choose a type</strong><div className="name-options">{nameOptions.map((option, index) => <button className={nameIndex === index ? 'focused' : ''} key={option.kind} onClick={() => chooseName(option.label, option.kind)}>{anchorIcon(option.kind)} {option.label}</button>)}</div><small>Left stick chooses · A confirms · B cancels</small></div><div className="name-panel name-panel-right"><button className="menu-move" onClick={() => openMove(namingId)}>Move</button><span className="menu-kicker">NEW SPATIAL OBJECT</span><strong>Choose a type</strong><div className="name-options">{nameOptions.map((option, index) => <button className={nameIndex === index ? 'focused' : ''} key={option.kind} onClick={() => chooseName(option.label, option.kind)}>{anchorIcon(option.kind)} {option.label}</button>)}</div><small>Left stick chooses · A confirms · B cancels</small></div></div>}
+      {namingId !== null && <div className="spatial-name-menu"><div className="name-panel name-panel-left"><button className="menu-move" onClick={() => openMove(namingId)}>Move</button><span className="menu-kicker">NEW SPATIAL OBJECT</span><strong>Choose a type</strong><div className="name-options">{nameOptions.map((option, index) => <button className={nameIndex === index ? 'focused' : ''} key={option.kind} onClick={() => chooseName(option.label, option.kind)}>{anchorIcon(option.kind)} {option.label}</button>)}</div><small>LS choose · A confirm · RB move · B stop</small></div><div className="name-panel name-panel-right"><button className="menu-move" onClick={() => openMove(namingId)}>Move</button><span className="menu-kicker">NEW SPATIAL OBJECT</span><strong>Choose a type</strong><div className="name-options">{nameOptions.map((option, index) => <button className={nameIndex === index ? 'focused' : ''} key={option.kind} onClick={() => chooseName(option.label, option.kind)}>{anchorIcon(option.kind)} {option.label}</button>)}</div><small>LS choose · A confirm · RB move · B stop</small></div></div>}
       {movingId !== null && <div className="move-hud"><Move3d size={15} /> Moving {anchors.find((anchor) => anchor.id === movingId)?.label} · left stick orbit · B stop</div>}
       {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><input ref={fileInputRef} className="file-input" type="file" accept="video/*,audio/*,application/pdf,image/*" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Import and link file</button></section></div>}
     </main>
