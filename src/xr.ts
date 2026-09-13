@@ -10,6 +10,11 @@ export type PlacedVolume = {
   position: [number, number, number]
 }
 
+export const supportsImmersiveAr = async () => {
+  const xr = getXR()
+  return Boolean(xr?.isSessionSupported && await xr.isSessionSupported('immersive-ar').catch(() => false))
+}
+
 const getXR = () => (navigator as XRNavigator).xr
 
 export const supportsRoomScan = async () => {

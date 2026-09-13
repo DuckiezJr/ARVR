@@ -4,7 +4,7 @@ import {
   FileText, Gamepad2, Headset, Library, MapPin, Maximize2, Mic, Move3d, Pause, Play,
   Plus, Radio, ScanLine, Settings2, Sparkles, Trash2, Upload, Video, X,
 } from 'lucide-react'
-import { startImmersiveSession, supportsRoomScan, type PlacedVolume } from './xr'
+import { startImmersiveSession, supportsImmersiveAr, supportsRoomScan, type PlacedVolume } from './xr'
 
 type AnchorKind = 'scene' | 'media' | 'reading' | 'instrument' | 'furniture' | 'door' | 'display'
 type Anchor = { id: number; label: string; kind: AnchorKind; x: number; y: number; detail: string; asset?: string }
@@ -29,9 +29,12 @@ function App() {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [connected, setConnected] = useState(false)
   const [vrSupported, setVrSupported] = useState(false)
+  const [arSupported, setArSupported] = useState(false)
   const [xrActive, setXrActive] = useState(false)
   const [scanStatus, setScanStatus] = useState('Ready for a real room scan')
   const [toast, setToast] = useState('')
+  const [drawMode, setDrawMode] = useState(false)
+  const [orientationReady, setOrientationReady] = useState(false)
   const [volumes, setVolumes] = useState<PlacedVolume[]>(() => {
     const stored = localStorage.getItem('roomscape-volumes')
     return stored ? JSON.parse(stored) : []
@@ -50,11 +53,16 @@ function App() {
     window.addEventListener('gamepadconnected', onGamepad)
     return () => window.removeEventListener('gamepadconnected', onGamepad)
   }, [])
+  useEffect(() => { toggleCamera(); lockLandscape() }, [])
   useEffect(() => {
-    supportsRoomScan().then((supported) => { setVrSupported(supported); if (!supported) toggleCamera() })
+    const trackOrientation = () => setOrientationReady(true)
+    window.addEventListener('deviceorientation', trackOrientation, true)
+    return () => window.removeEventListener('deviceorientation', trackOrientation, true)
   }, [])
   useEffect(() => {
-    enterImmersive('immersive-ar')
+    const handleMotion = () => setOrientationReady(true)
+    window.addEventListener('deviceorientation', handleMotion, true)
+    return () => window.removeEventListener('deviceorientation', handleMotion, true)
   }, [])
   useEffect(() => {
     let frame = 0
@@ -75,6 +83,7 @@ function App() {
         else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { addAnchor(); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[2]?.pressed) { setLibraryOpen(true); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { setToast('View recentered'); lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[4]?.pressed) { setDrawMode((active) => !active); setToast(drawMode ? 'Draw mode off' : 'Draw mode on · look at a surface and press B'); lastAction = time }
       }
       frame = requestAnimationFrame(pollController)
     }
@@ -118,6 +127,10 @@ function App() {
     } catch { setToast('Camera permission is needed for live room view') }
   }
 
+  const lockLandscape = async () => {
+    try { await screen.orientation?.lock('landscape') } catch { /* iOS and some browsers require installed-app mode */ }
+  }
+
   const enterImmersive = async (mode: 'immersive-vr' | 'immersive-ar' = 'immersive-vr') => {
     if (!xrCanvasRef.current) return
     setIsScanning(true)
@@ -129,7 +142,7 @@ function App() {
       setXrActive(true)
     } catch (error) {
       setIsScanning(false)
-      setToast('XR is unavailable here; using live camera mode')
+      setToast('ARCore/WebXR AR is unavailable here; using live camera mode')
       toggleCamera()
     }
   }
@@ -165,8 +178,15 @@ function App() {
 
   const enterVr = () => beginScan()
 
+  const requestCardboardMotion = async () => {
+    const permission = (window as Window & { DeviceOrientationEvent?: { requestPermission?: () => Promise<string> } }).DeviceOrientationEvent?.requestPermission
+    if (permission) await permission()
+    setOrientationReady(true)
+    setToast('Cardboard head tracking enabled')
+  }
+
   return (
-    <main className={`app-shell ${xrActive ? 'immersive-shell' : ''}`}>
+    <main className={`app-shell cardboard-shell ${xrActive ? 'immersive-shell' : ''}`}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><Sparkles size={19} /></div><span>roomscape</span><span className="beta">BETA</span></div>
         <nav className="nav-stack"><button className="nav-item active"><MapPin size={18} /> Room view</button><button className="nav-item" onClick={() => setLibraryOpen(true)}><Library size={18} /> My library <span className="nav-count">12</span></button><button className="nav-item"><Archive size={18} /> Saved rooms</button></nav>
@@ -174,7 +194,7 @@ function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div><p className="eyebrow">ROOMSCAPE / SPATIAL WORKSPACE</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button></div></header>
+        <header className="topbar"><div><p className="eyebrow">ROOMSCAPE / SPATIAL WORKSPACE</p><h1>Everything in your space.</h1><p className="capability-note">{arSupported ? 'ARCore/WebXR room sensing ready' : 'Camera preview · Android ARCore/WebXR recommended'}</p></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button></div></header>
         <div className="view-toolbar"><div className="mode-switch"><button className="mode active"><Move3d size={15} /> Room map</button><button className="mode" onClick={toggleCamera}><Camera size={15} /> Live camera</button></div><div className="view-tools"><button className="icon-button" title="Add anchor" onClick={addAnchor}><Plus size={18} /></button><button className="icon-button" title="Fullscreen"><Maximize2 size={17} /></button><span className={`status-pill ${connected ? 'connected' : ''}`}><span className="status-dot" /> {connected ? 'Controller ready' : 'Local mode'}</span></div></div>
         <section className="map-layout">
           <div className={`room-map ${isScanning ? 'scanning' : ''} ${xrActive ? 'xr-ready' : ''}`}>
@@ -190,7 +210,8 @@ function App() {
         </section>
         <footer className="workspace-footer"><div className="tip"><Gamepad2 size={17} /><span><strong>Controller ready.</strong> Move with the left stick, select with A, and recenter with Y.</span></div><button className="mic-button"><Mic size={17} /></button></footer>
       </section>
-      {(xrActive || cameraOn) && <><div className="gaze-reticle" aria-hidden="true"><span /></div><div className="spatial-dock"><div className="dock-status"><span className="status-dot" /> {xrActive ? scanStatus : 'Live camera workspace'}</div><div className="dock-hint"><Gamepad2 size={14} /> A open · B place · X library · Y recenter</div></div><div className="immersive-hud"><div className="immersive-hud-top"><span className="xr-badge"><span className="status-dot" /> {xrActive ? 'PASSTHROUGH XR' : 'CAMERA MODE'}</span><span>{scanStatus}</span></div><div className="immersive-hud-center"><div className="reticle" /><p>{xrActive ? 'Point at a surface, then use the controller' : 'Move your phone to look around'}</p></div></div></>}
+      {!cameraOn && <button className="permission-button" onClick={() => { toggleCamera(); requestCardboardMotion() }}>Enable camera workspace</button>}
+      {(xrActive || cameraOn) && <><div className="gaze-reticle" aria-hidden="true"><span /></div><div className="spatial-dock"><div className="dock-status"><span className="status-dot" /> {xrActive ? scanStatus : 'Cardboard camera workspace'}</div><div className="dock-hint"><Gamepad2 size={14} /> A open · B place · X library · Y recenter · LB draw</div><div className="dock-meta">{drawMode ? 'DRAW MODE · outline an object with your gaze' : orientationReady ? 'Head tracking active' : 'Tap the center control to enable motion'}</div></div><div className="immersive-hud"><div className="immersive-hud-top"><span className="xr-badge"><span className="status-dot" /> {xrActive ? 'PASSTHROUGH XR' : 'CARDBOARD MODE'}</span><span>{scanStatus}</span></div><div className="immersive-hud-center"><div className={`reticle ${drawMode ? 'drawing' : ''}`} /><p>{xrActive ? 'Point at a surface, then use the controller' : 'Look at an object · A select · B place'}</p><button className="motion-button" onClick={requestCardboardMotion}>{orientationReady ? 'Motion active' : 'Enable head tracking'}</button></div></div></>}
       {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><input ref={fileInputRef} className="file-input" type="file" accept="video/*,audio/*,application/pdf,image/*" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Import and link file</button></section></div>}
       {toast && <div className="toast"><Sparkles size={16} /> {toast}</div>}
     </main>
