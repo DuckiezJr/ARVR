@@ -17,6 +17,10 @@ const starterAnchors: Anchor[] = [
 ]
 
 const anchorIcon = (kind: AnchorKind) => kind === 'media' || kind === 'display' ? <Video size={15} /> : kind === 'reading' ? <BookOpen size={15} /> : kind === 'instrument' ? <Mic size={15} /> : kind === 'door' ? <DoorOpen size={15} /> : <Box size={15} />
+const nameOptions: Array<{ label: string; kind: AnchorKind }> = [
+  { label: 'Door', kind: 'door' }, { label: 'Book', kind: 'reading' }, { label: 'Movie player', kind: 'media' },
+  { label: 'Furniture', kind: 'furniture' }, { label: 'Guitar', kind: 'instrument' }, { label: 'Display', kind: 'display' },
+]
 
 function App() {
   const [anchors, setAnchors] = useState<Anchor[]>(() => {
@@ -35,6 +39,9 @@ function App() {
   const [toast, setToast] = useState('')
   const [drawMode, setDrawMode] = useState(false)
   const [orientationReady, setOrientationReady] = useState(false)
+  const [namingId, setNamingId] = useState<number | null>(null)
+  const [movingId, setMovingId] = useState<number | null>(null)
+  const [nameIndex, setNameIndex] = useState(0)
   const [volumes, setVolumes] = useState<PlacedVolume[]>(() => {
     const stored = localStorage.getItem('roomscape-volumes')
     return stored ? JSON.parse(stored) : []
@@ -71,6 +78,13 @@ function App() {
       if (gamepad) {
         setConnected(true)
         const [horizontal, vertical] = gamepad.axes
+        if (namingId !== null && time - lastAction > 220 && Math.abs(vertical) > .6) {
+          setNameIndex((current) => (current + (vertical > 0 ? 1 : -1) + nameOptions.length) % nameOptions.length)
+          lastAction = time
+        }
+        if (movingId !== null && (Math.abs(horizontal) > .18 || Math.abs(vertical) > .18)) {
+          setAnchors((current) => current.map((anchor) => anchor.id === movingId ? { ...anchor, x: Math.max(8, Math.min(92, anchor.x + horizontal * 1.2)), y: Math.max(12, Math.min(82, anchor.y + vertical * 1.2)) } : anchor))
+        }
         if (time - lastAction > 220 && (Math.abs(horizontal) > .6 || Math.abs(vertical) > .6) && anchors.length) {
           const direction = Math.abs(horizontal) > Math.abs(vertical) ? (horizontal > 0 ? 1 : -1) : (vertical > 0 ? 1 : -1)
           const index = anchors.findIndex((anchor) => anchor.id === selectedId)
@@ -78,8 +92,8 @@ function App() {
           if (next) setSelectedId(next.id)
           lastAction = time
         }
-        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { lastAction = time }
-        else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { addAnchor(); lastAction = time }
+        if (time - lastAction > 500 && gamepad.buttons[0]?.pressed) { if (namingId !== null) chooseName(nameOptions[nameIndex].label, nameOptions[nameIndex].kind); lastAction = time }
+        else if (time - lastAction > 500 && gamepad.buttons[1]?.pressed) { if (movingId !== null) setMovingId(null); else if (namingId !== null) setNamingId(null); else addAnchor(); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[2]?.pressed) { setLibraryOpen(true); lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[3]?.pressed) { lastAction = time }
         else if (time - lastAction > 500 && gamepad.buttons[4]?.pressed) { setDrawMode((active) => !active); lastAction = time }
@@ -88,7 +102,7 @@ function App() {
     }
     frame = requestAnimationFrame(pollController)
     return () => cancelAnimationFrame(frame)
-  }, [anchors, selected, selectedId])
+  }, [anchors, selected, selectedId, movingId, namingId, nameIndex])
   useEffect(() => {
     if (!toast) return
     const timeout = window.setTimeout(() => setToast(''), 2600)
@@ -120,8 +134,14 @@ function App() {
     setIsScanning(true)
     try {
       await startImmersiveSession(xrCanvasRef.current, mode, setScanStatus, (volume) => {
-        if (volume) setVolumes((current) => [...current, volume])
-        setToast('3D volume placed. Open the centered library to attach content.')
+        if (volume) {
+          setVolumes((current) => [...current, volume])
+          const anchor: Anchor = { id: volume.id, label: 'New object', kind: 'scene', x: 50, y: 48, detail: 'Surface volume · choose a type' }
+          setAnchors((current) => [...current, anchor])
+          setSelectedId(anchor.id)
+          setNameIndex(0)
+          setNamingId(anchor.id)
+        }
       }, volumes)
       setXrActive(true)
     } catch (error) {
@@ -134,9 +154,17 @@ function App() {
   const beginScan = () => enterImmersive('immersive-ar')
 
   const addAnchor = () => {
-    const next: Anchor = { id: Date.now(), label: 'New anchor', kind: 'scene', x: 35 + Math.random() * 32, y: 35 + Math.random() * 28, detail: 'Unassigned room object' }
-    setAnchors((current) => [...current, next]); setSelectedId(next.id); setToast('Anchor placed')
+    const next: Anchor = { id: Date.now(), label: 'New object', kind: 'scene', x: 50, y: 48, detail: 'Placed in spatial view' }
+    setAnchors((current) => [...current, next]); setSelectedId(next.id); setNameIndex(0); setNamingId(next.id); setToast('')
   }
+
+  const chooseName = (label: string, kind: AnchorKind) => {
+    if (namingId === null) return
+    setAnchors((current) => current.map((anchor) => anchor.id === namingId ? { ...anchor, label, kind, detail: `Spatial volume · ${kind}` } : anchor))
+    setNamingId(null)
+  }
+
+  const openMove = (id: number) => { setMovingId(id); setNamingId(null); setSelectedId(id) }
 
   const removeSelected = () => {
     if (!selected) return
@@ -188,6 +216,8 @@ function App() {
             <div className="map-grid" /><div className="room-label room-label-a">NORTH WALL <span>4.8 m</span></div><div className="room-label room-label-b">WINDOW <span>1.6 m</span></div><div className="room-label room-label-c">SOUTH WALL <span>4.8 m</span></div>
             <div className="room-shape"><div className="door-shape" /><div className="window-shape" /><div className="rug-shape" /><div className="table-shape"><span /></div><div className="chair-shape chair-one" /><div className="chair-shape chair-two" /></div>
             {anchors.map((anchor) => <button key={anchor.id} className={`anchor anchor-${anchor.kind} ${selected?.id === anchor.id ? 'selected' : ''}`} style={{ left: `${anchor.x}%`, top: `${anchor.y}%` }} onClick={() => setSelectedId(anchor.id)}><span className="anchor-pulse" /><span className="anchor-pin">{anchorIcon(anchor.kind)}</span><span className="anchor-label">{anchor.label}</span></button>)}
+            {cameraOn && anchors.map((anchor) => <button key={`volume-left-${anchor.id}`} className={`spatial-volume spatial-volume-left ${selected?.id === anchor.id ? 'selected' : ''} ${movingId === anchor.id ? 'moving' : ''}`} style={{ left: `${anchor.x / 2}%`, top: `${anchor.y}%` }} onClick={() => setSelectedId(anchor.id)}><span className="volume-box">{anchorIcon(anchor.kind)}</span><span>{anchor.label}</span></button>)}
+            {cameraOn && anchors.map((anchor) => <button key={`volume-right-${anchor.id}`} className={`spatial-volume spatial-volume-right ${selected?.id === anchor.id ? 'selected' : ''} ${movingId === anchor.id ? 'moving' : ''}`} style={{ left: `${50 + anchor.x / 2}%`, top: `${anchor.y}%` }} onClick={() => setSelectedId(anchor.id)}><span className="volume-box">{anchorIcon(anchor.kind)}</span><span>{anchor.label}</span></button>)}
             {isScanning && <div className="scan-line"><ScanLine size={18} /> {scanStatus}</div>}
             <div className="map-footer"><span><Radio size={14} /> {xrActive ? 'Live XR session' : 'Desktop preview only'}</span><span>{xrActive ? 'Depth / hit-test active' : 'Start scan to use real surroundings'}</span></div>
           </div>
@@ -197,8 +227,9 @@ function App() {
       </section>
       {!cameraOn && <button className="permission-button" onClick={() => { toggleCamera(); requestCardboardMotion() }}>Enable camera workspace</button>}
       {(xrActive || cameraOn) && <><div className="gaze-reticle gaze-reticle-left" aria-hidden="true"><span /></div><div className="gaze-reticle gaze-reticle-right" aria-hidden="true"><span /></div></>}
+      {namingId !== null && <div className="spatial-name-menu"><div className="name-panel name-panel-left"><button className="menu-move" onClick={() => openMove(namingId)}>Move</button><span className="menu-kicker">NEW SPATIAL OBJECT</span><strong>Choose a type</strong><div className="name-options">{nameOptions.map((option, index) => <button className={nameIndex === index ? 'focused' : ''} key={option.kind} onClick={() => chooseName(option.label, option.kind)}>{anchorIcon(option.kind)} {option.label}</button>)}</div><small>Left stick chooses · A confirms · B cancels</small></div><div className="name-panel name-panel-right"><button className="menu-move" onClick={() => openMove(namingId)}>Move</button><span className="menu-kicker">NEW SPATIAL OBJECT</span><strong>Choose a type</strong><div className="name-options">{nameOptions.map((option, index) => <button className={nameIndex === index ? 'focused' : ''} key={option.kind} onClick={() => chooseName(option.label, option.kind)}>{anchorIcon(option.kind)} {option.label}</button>)}</div><small>Left stick chooses · A confirms · B cancels</small></div></div>}
+      {movingId !== null && <div className="move-hud"><Move3d size={15} /> Moving {anchors.find((anchor) => anchor.id === movingId)?.label} · left stick orbit · B stop</div>}
       {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><input ref={fileInputRef} className="file-input" type="file" accept="video/*,audio/*,application/pdf,image/*" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Import and link file</button></section></div>}
-      {toast && <div className="toast"><Sparkles size={16} /> {toast}</div>}
     </main>
   )
 }
