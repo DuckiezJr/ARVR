@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { startImmersiveSession, supportsRoomScan, type PlacedVolume } from './xr'
 
-type AnchorKind = 'scene' | 'media' | 'reading'
+type AnchorKind = 'scene' | 'media' | 'reading' | 'instrument' | 'furniture' | 'door' | 'display'
 type Anchor = { id: number; label: string; kind: AnchorKind; x: number; y: number; detail: string; asset?: string }
 
 const starterAnchors: Anchor[] = [
@@ -16,7 +16,7 @@ const starterAnchors: Anchor[] = [
   { id: 4, label: 'Coffee table', kind: 'scene', x: 50, y: 70, detail: 'Surface · 0.42 m high' },
 ]
 
-const anchorIcon = (kind: AnchorKind) => kind === 'media' ? <Video size={15} /> : kind === 'reading' ? <BookOpen size={15} /> : <Box size={15} />
+const anchorIcon = (kind: AnchorKind) => kind === 'media' || kind === 'display' ? <Video size={15} /> : kind === 'reading' ? <BookOpen size={15} /> : kind === 'instrument' ? <Mic size={15} /> : kind === 'door' ? <DoorOpen size={15} /> : <Box size={15} />
 
 function App() {
   const [anchors, setAnchors] = useState<Anchor[]>(() => {
@@ -38,6 +38,7 @@ function App() {
   })
   const videoRef = useRef<HTMLVideoElement>(null)
   const xrCanvasRef = useRef<HTMLCanvasElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const selected = anchors.find((anchor) => anchor.id === selectedId) ?? anchors[0]
 
   useEffect(() => localStorage.setItem('roomscape-anchors', JSON.stringify(anchors)), [anchors])
@@ -49,6 +50,9 @@ function App() {
   }, [])
   useEffect(() => {
     supportsRoomScan().then(setVrSupported)
+  }, [])
+  useEffect(() => {
+    enterImmersive('immersive-ar')
   }, [])
   useEffect(() => {
     let frame = 0
@@ -105,7 +109,8 @@ function App() {
       setXrActive(true)
     } catch (error) {
       setIsScanning(false)
-      setToast(error instanceof Error ? error.message : 'This device cannot start an AR room scan')
+      setToast('XR is unavailable here; using live camera mode')
+      toggleCamera()
     }
   }
 
@@ -119,6 +124,18 @@ function App() {
   const removeSelected = () => {
     if (!selected) return
     setAnchors((current) => current.filter((anchor) => anchor.id !== selected.id)); setSelectedId(anchors.find((anchor) => anchor.id !== selected.id)?.id ?? 0); setToast('Anchor removed')
+  }
+
+  const updateSelected = (changes: Partial<Anchor>) => {
+    if (!selected) return
+    setAnchors((current) => current.map((anchor) => anchor.id === selected.id ? { ...anchor, ...changes } : anchor))
+  }
+
+  const importFile = (file: File) => {
+    if (!selected) return
+    const kind: AnchorKind = file.type.startsWith('video/') ? 'media' : file.type === 'application/pdf' ? 'reading' : file.type.startsWith('audio/') ? 'instrument' : 'display'
+    updateSelected({ asset: file.name, kind, detail: `${file.type || 'Local file'} · ${Math.round(file.size / 1024)} KB` })
+    setToast(`${file.name} linked to ${selected.label}`)
   }
 
   const exportRoom = () => {
@@ -137,7 +154,7 @@ function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / PASSTHROUGH XR</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={beginScan}><Headset size={16} /> Enter passthrough</button></div></header>
+        <header className="topbar"><div><p className="eyebrow">ROOM VIEW / PASSTHROUGH XR</p><h1>Everything in your space.</h1></div><div className="top-actions"><button className="outline-button" onClick={exportRoom}><ArrowDownToLine size={16} /> Export room</button><button className="solid-button" onClick={beginScan}><ScanLine size={16} /> Restart spatial view</button></div></header>
         <div className="view-toolbar"><div className="mode-switch"><button className="mode active"><Move3d size={15} /> Room map</button><button className="mode" onClick={toggleCamera}><Camera size={15} /> Live camera</button></div><div className="view-tools"><button className="icon-button" title="Add anchor" onClick={addAnchor}><Plus size={18} /></button><button className="icon-button" title="Fullscreen"><Maximize2 size={17} /></button><span className={`status-pill ${connected ? 'connected' : ''}`}><span className="status-dot" /> {connected ? 'Controller ready' : 'Local mode'}</span></div></div>
         <section className="map-layout">
           <div className={`room-map ${isScanning ? 'scanning' : ''} ${xrActive ? 'xr-ready' : ''}`}>
@@ -149,12 +166,12 @@ function App() {
             {isScanning && <div className="scan-line"><ScanLine size={18} /> {scanStatus}</div>}
             <div className="map-footer"><span><Radio size={14} /> {xrActive ? 'Live XR session' : 'Desktop preview only'}</span><span>{xrActive ? 'Depth / hit-test active' : 'Start scan to use real surroundings'}</span></div>
           </div>
-          <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED ANCHOR</p><h2>{selected?.label ?? 'No anchor selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind === 'media' ? 'MEDIA SURFACE' : selected.kind === 'reading' ? 'READING SPACE' : 'ROOM OBJECT'}</span></div><div className="detail-block"><div className="detail-row"><span>Type</span><strong>{selected.kind === 'media' ? 'Movie player' : selected.kind === 'reading' ? 'PDF reader' : 'Interactive object'}</strong></div><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Available offline · 248 MB</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="solid-button wide" onClick={beginScan}><Headset size={16} /> {vrSupported ? 'Enter passthrough' : 'Check XR support'}</button><button className="outline-button wide" onClick={() => setToast('A: select · B: place · Y: recenter')}><Gamepad2 size={16} /> Controller mapping</button></div></>}</aside>
+          <aside className="inspector"><div className="inspector-heading"><div><p className="eyebrow">SELECTED OBJECT</p><h2>{selected?.label ?? 'No object selected'}</h2></div><button className="icon-button" onClick={removeSelected}><Trash2 size={17} /></button></div>{selected && <><div className={`preview ${selected.kind}`}><div className="preview-glow" />{selected.kind === 'media' ? <Play size={26} fill="currentColor" /> : selected.kind === 'reading' ? <BookOpen size={26} /> : <Box size={26} />}<span>{selected.kind.toUpperCase()} OBJECT</span></div><div className="detail-block"><label className="field-label">Object name<input value={selected.label} onChange={(event) => updateSelected({ label: event.target.value })} /></label><label className="field-label">Object type<select value={selected.kind} onChange={(event) => updateSelected({ kind: event.target.value as AnchorKind })}><option value="scene">Object</option><option value="door">Door / doorway</option><option value="furniture">Furniture</option><option value="instrument">Instrument</option><option value="display">Display</option><option value="media">Movie player</option><option value="reading">Book / PDF</option></select></label><div className="detail-row"><span>Position</span><strong>{selected.detail}</strong></div>{selected.asset && <div className="asset-row"><div className="asset-icon">{selected.kind === 'media' ? <Video size={17} /> : <FileText size={17} />}</div><div><strong>{selected.asset}</strong><small>Linked locally on this device</small></div><ChevronRight size={16} /></div>}</div><div className="inspector-actions"><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Link file to object</button><button className="outline-button wide" onClick={() => setToast('A: select · B: place · Y: recenter')}><Gamepad2 size={16} /> Controller mapping</button></div></>}</aside>
         </section>
         <footer className="workspace-footer"><div className="tip"><Gamepad2 size={17} /><span><strong>Controller ready.</strong> Move with the left stick, select with A, and recenter with Y.</span></div><button className="mic-button"><Mic size={17} /></button></footer>
       </section>
       {xrActive && <div className="immersive-hud"><div className="immersive-hud-top"><span className="xr-badge"><span className="status-dot" /> VR WORKSPACE</span><span>{scanStatus}</span></div><div className="immersive-hud-center"><div className="reticle" /><p>Point with the headset or controller</p><div className="immersive-actions"><button className="solid-button" onClick={() => setLibraryOpen(true)}><Library size={16} /> Open library</button><button className="outline-button" onClick={addAnchor}><Plus size={16} /> Place anchor</button></div></div><div className="immersive-hud-bottom"><Gamepad2 size={15} /> Left stick move · A select · B place · Y recenter</div></div>}
-      {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><button className="outline-button wide"><Upload size={16} /> Add local files</button></section></div>}
+      {libraryOpen && <div className="modal-backdrop" onClick={() => setLibraryOpen(false)}><section className="library-modal" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h2>Your room content</h2></div><button className="icon-button" onClick={() => setLibraryOpen(false)}><X size={18} /></button></div><div className="library-list"><div className="library-item"><div className="file-kind video-kind"><Video size={19} /></div><div><strong>Interstellar.mp4</strong><small>Movie · 248 MB</small></div><button className="icon-button"><Play size={16} /></button></div><div className="library-item"><div className="file-kind pdf-kind"><FileText size={19} /></div><div><strong>Welcome to Roomscape.pdf</strong><small>Book · 4.2 MB</small></div><button className="icon-button"><BookOpen size={16} /></button></div></div><input ref={fileInputRef} className="file-input" type="file" accept="video/*,audio/*,application/pdf,image/*" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /><button className="outline-button wide" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> Import and link file</button></section></div>}
       {toast && <div className="toast"><Sparkles size={16} /> {toast}</div>}
     </main>
   )

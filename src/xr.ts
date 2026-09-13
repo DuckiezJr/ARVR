@@ -36,7 +36,7 @@ export const startImmersiveSession = async (
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setSize(window.innerWidth, window.innerHeight, false)
   renderer.xr.enabled = true
-  renderer.xr.setReferenceSpaceType('local-floor')
+  renderer.xr.setReferenceSpaceType('local')
 
   const scene = new THREE.Scene()
   scene.add(new THREE.HemisphereLight(0xffffff, 0x334433, 1.4))
@@ -71,8 +71,8 @@ export const startImmersiveSession = async (
   scene.add(controller)
 
   const session = await xr.requestSession(mode, {
-    requiredFeatures: ['local-floor'],
-    optionalFeatures: mode === 'immersive-ar' ? ['hit-test', 'anchors', 'depth-sensing', 'dom-overlay'] : ['bounded-floor', 'hand-tracking', 'dom-overlay'],
+    requiredFeatures: [],
+    optionalFeatures: mode === 'immersive-ar' ? ['hit-test', 'anchors', 'depth-sensing', 'dom-overlay', 'local-floor'] : ['bounded-floor', 'hand-tracking', 'dom-overlay', 'local-floor'],
     ...(mode === 'immersive-ar' ? { domOverlay: { root: document.body } } : {}),
   })
   await renderer.xr.setSession(session)
