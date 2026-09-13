@@ -76,9 +76,9 @@ If you choose a repository name other than `ARVR`, change the `base` value in `v
 
 ## Real XR Requirements
 
-The app now requests a real `immersive-ar` WebXR session with `hit-test`, optional depth sensing, and controller select events. It does not fabricate a room scan when XR is unavailable.
+The app now requests a real `immersive-ar` WebXR session with `hit-test`, optional depth sensing, and controller select events. On a compatible Android phone, Chrome's WebXR AR path uses the device's ARCore services for camera tracking and surface detection. It does not fabricate a room scan when XR is unavailable.
 
-For the real scan path, use a supported Android phone with an ARCore-compatible Chrome/WebXR build, or a mixed-reality headset/browser that exposes WebXR AR. iPhone Safari and ordinary desktop browsers cannot provide this room-scanning session. An Xbox controller must be paired to the device and exposed through the browser Gamepad API.
+For the real scan path, use a supported Android phone with Google Play Services for AR (ARCore) installed and an AR-capable Chrome/WebXR build, or a mixed-reality headset/browser that exposes WebXR AR. Grant camera and motion permissions. iPhone Safari and ordinary desktop browsers cannot provide this room-scanning session. An Xbox controller must be paired to the device and exposed through the browser Gamepad API.
 
 The centered scan overlay is intentional: headset browsers can block or crop side panels, so scan state and the primary action stay in the central safe area.
 
